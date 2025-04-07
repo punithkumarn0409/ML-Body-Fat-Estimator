@@ -3,12 +3,13 @@ import cv2
 import pixellib
 from pixellib.torchbackend.instance import instanceSegmentation
 import sys
-import cv2
-import mediapipe as mp
 import numpy as np
 import math
 import pandas as pb
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS
+import os
+import uuid
 
 height_in_cm = float(183)
 #img_path = "InputImage.jpg"
@@ -294,19 +295,43 @@ def find_bodyfat(person_height_cm,image_path):
 
 app = Flask(__name__)
 
+# Enable CORS for all routes or you can customize the origins
+CORS(app)  # This allows cross-origin requests from any domain
+
 @app.route('/bfestimate', methods=['POST'])
 def infer_image():
+    # Check if the file is part of the request
     if 'file' not in request.files:
-        return jsonify(error="Please upload the image")
+        return jsonify(error="Please upload the image"), 400
 
     file = request.files.get('file')
-    usrheight = request.form['height']
-    print(request.args.get('height'))
-    img_bytes = file.read()
-    img_path = "./images/test.jpg"
-    with open(img_path, "wb") as img:
-        img.write(img_bytes)
-    res = find_bodyfat(float(usrheight),img_path)
+
+    # Check if height is provided
+    usrheight = request.form.get('height')
+    if not usrheight:
+        return jsonify(error="Please provide height"), 400
+
+    try:
+        usrheight = float(usrheight)
+    except ValueError:
+        return jsonify(error="Height must be a valid number"), 400
+
+    # Generate a unique file name to prevent overwriting
+    file_extension = file.filename.split('.')[-1]
+    file_name = f"{uuid.uuid4()}.{file_extension}"
+    img_path = os.path.join("./images", file_name)
+
+    # Save the file
+    os.makedirs(os.path.dirname(img_path), exist_ok=True)
+    file.save(img_path)
+
+    # Process the image and calculate body fat
+    try:
+        res = find_bodyfat(usrheight, img_path)
+    except Exception as e:
+        return jsonify(error=f"Error in processing body fat: {str(e)}"), 500
+
+    # Return the result as JSON
     return jsonify(result=res)
 
 if __name__ == '__main__':
